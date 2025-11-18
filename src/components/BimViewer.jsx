@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import { IFCLoader } from "web-ifc-three/IFCLoader";
+import MeasurementTool from "./MeasurementTool";
+import Toolbar from "./Toolbar";
 
 const BimViewer = ({ onElementClick, ifcFile }) => {
   const canvasRef = useRef();
@@ -9,7 +11,13 @@ const BimViewer = ({ onElementClick, ifcFile }) => {
   const cameraRef = useRef();
   const rendererRef = useRef();
   const ifcLoaderRef = useRef();
+  const controlsRef = useRef();
   const [loading, setLoading] = useState(false);
+  const [isMeasuring, setIsMeasuring] = useState(false);
+  const measurePointsRef = useRef([]);
+  const [measurements, setMeasurements] = useState([]);
+  const measureMarkersRef = useRef([]);
+  const isMeasuringRef = useRef(false);
 
   useEffect(() => {
     // Scene & Camera
@@ -55,6 +63,7 @@ const BimViewer = ({ onElementClick, ifcFile }) => {
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
+    controlsRef.current = controls;
 
     // IFC Loader setup
     const ifcLoader = new IFCLoader();
@@ -91,11 +100,55 @@ const BimViewer = ({ onElementClick, ifcFile }) => {
       const intersects = raycaster.intersectObjects(scene.children, true);
 
       if (intersects.length > 0) {
-        const object = intersects[0].object;
+        const intersection = intersects[0];
+        const object = intersection.object;
+
+        // If measuring mode is active
+        if (isMeasuringRef.current) {
+          const point = intersection.point;
+
+          // Add visual marker
+          const markerGeometry = new THREE.SphereGeometry(0.3, 16, 16);
+          const markerMaterial = new THREE.MeshBasicMaterial({
+            color: 0xff0000,
+          });
+          const marker = new THREE.Mesh(markerGeometry, markerMaterial);
+          marker.position.copy(point);
+          scene.add(marker);
+          measureMarkersRef.current.push(marker);
+
+          measurePointsRef.current.push(point);
+
+          // If we have 2 points, calculate distance
+          if (measurePointsRef.current.length === 2) {
+            const distance = measurePointsRef.current[0].distanceTo(
+              measurePointsRef.current[1]
+            );
+
+            // Draw line between points
+            const lineGeometry = new THREE.BufferGeometry().setFromPoints(
+              measurePointsRef.current
+            );
+            const lineMaterial = new THREE.LineBasicMaterial({
+              color: 0xff0000,
+              linewidth: 3,
+            });
+            const line = new THREE.Line(lineGeometry, lineMaterial);
+            scene.add(line);
+            measureMarkersRef.current.push(line);
+
+            setMeasurements((prev) => [
+              ...prev,
+              { distance, points: [...measurePointsRef.current] },
+            ]);
+            measurePointsRef.current = [];
+          }
+          return;
+        }
 
         // If IFC model, get properties
         if (object.modelID !== undefined) {
-          const index = intersects[0].faceIndex;
+          const index = intersection.faceIndex;
           const id = ifcLoader.ifcManager.getExpressId(object.geometry, index);
           const props = await ifcLoader.ifcManager.getItemProperties(
             object.modelID,
@@ -151,6 +204,45 @@ const BimViewer = ({ onElementClick, ifcFile }) => {
       ifcLoader.ifcManager.dispose();
     };
   }, [onElementClick]);
+
+  // Update measuring ref when state changes
+  useEffect(() => {
+    isMeasuringRef.current = isMeasuring;
+  }, [isMeasuring]);
+
+  const handleMeasureToggle = () => {
+    const newState = !isMeasuring;
+    setIsMeasuring(newState);
+    measurePointsRef.current = [];
+
+    // Clear measurement markers
+    if (!newState) {
+      measureMarkersRef.current.forEach((marker) => {
+        sceneRef.current.remove(marker);
+      });
+      measureMarkersRef.current = [];
+      setMeasurements([]);
+    }
+  };
+
+  const handleScreenshot = () => {
+    const canvas = rendererRef.current.domElement;
+    canvas.toBlob((blob) => {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.download = `bim-screenshot-${Date.now()}.png`;
+      link.href = url;
+      link.click();
+    });
+  };
+
+  const handleResetView = () => {
+    if (cameraRef.current && controlsRef.current) {
+      cameraRef.current.position.set(15, 15, 15);
+      cameraRef.current.lookAt(0, 0, 0);
+      controlsRef.current.reset();
+    }
+  };
 
   // Load IFC file when provided
   useEffect(() => {
@@ -214,6 +306,20 @@ const BimViewer = ({ onElementClick, ifcFile }) => {
           Loading IFC Model...
         </div>
       )}
+
+      <MeasurementTool
+        isActive={isMeasuring}
+        onToggle={handleMeasureToggle}
+        measurements={measurements}
+      />
+
+      <Toolbar
+        onMeasureToggle={handleMeasureToggle}
+        onScreenshot={handleScreenshot}
+        onResetView={handleResetView}
+        isMeasuring={isMeasuring}
+      />
+
       <canvas ref={canvasRef} style={{ width: "100%", height: "100%" }} />
     </div>
   );
