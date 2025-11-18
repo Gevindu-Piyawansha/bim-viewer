@@ -2,14 +2,21 @@ import { useState } from "react";
 import BimViewer from "./components/BimViewer";
 import Dashboard from "./components/dashboard/Dashboard";
 import Sidebar from "./components/Sidebar";
+import FileUpload from "./components/FileUpload";
 import { projectData } from "./data/mockData";
 
 function App() {
   const [selectedElement, setSelectedElement] = useState(null);
   const [showDashboard, setShowDashboard] = useState(false);
+  const [ifcFile, setIfcFile] = useState(null);
 
   const handleElementClick = (element) => {
     setSelectedElement(element);
+  };
+
+  const handleFileSelect = (file) => {
+    setIfcFile(file);
+    setShowDashboard(false); // Switch to 3D view when file is loaded
   };
 
   return (
@@ -62,10 +69,20 @@ function App() {
       {/* Main Content */}
       <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
         {showDashboard ? (
-          <Dashboard projectData={projectData} />
+          <div
+            style={{
+              padding: "1.5rem",
+              height: "100%",
+              overflowY: "auto",
+              backgroundColor: "#f9fafb",
+            }}
+          >
+            <FileUpload onFileSelect={handleFileSelect} />
+            <Dashboard projectData={projectData} />
+          </div>
         ) : (
           <>
-            <BimViewer onElementClick={handleElementClick} />
+            <BimViewer onElementClick={handleElementClick} ifcFile={ifcFile} />
             <Sidebar
               selectedElement={selectedElement}
               onClose={() => setSelectedElement(null)}
